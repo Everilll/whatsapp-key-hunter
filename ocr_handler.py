@@ -30,8 +30,8 @@ def dapatkan_angka_layar(crop_box):
     cropped_img.save("clean_angka.png")
     cropped_img.save("/sdcard/hasil_potong_bot.png")
     
-    # 3. Jalankan Tesseract OCR mode khusus angka (--psm 6 digits)
-    subprocess.run("tesseract clean_angka.png hasil_ocr --psm 6 digits", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # 3. Jalankan Tesseract OCR mode satu baris teks dan whitelist angka mutlak
+    subprocess.run("tesseract clean_angka.png hasil_ocr --psm 7 -c tessedit_char_whitelist=0123456789", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     teks_bersih = ""
     if os.path.exists("hasil_ocr.txt"):
