@@ -18,8 +18,16 @@ def dapatkan_angka_layar(crop_box):
     
     # Mengubah gambar ke hitam-putih (Grayscale) agar OCR jauh lebih akurat
     cropped_img = cropped_img.convert('L')
-    cropped_img.save("clean_angka.png")
     
+    # Perbesar gambar 2x lipat agar lekukan angka (seperti 3 dan 5) terlihat sangat jelas oleh OCR
+    w, h = cropped_img.size
+    cropped_img = cropped_img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+    
+    # Piksel di atas 180 jadi putih bersih (255), di bawah itu jadi hitam pekat (0)
+    cropped_img = cropped_img.point(lambda p: 255 if p > 180 else 0)
+    
+    # Simpan hasil pembersihan untuk debugging
+    cropped_img.save("clean_angka.png")
     cropped_img.save("/sdcard/hasil_potong_bot.png")
     
     # 3. Jalankan Tesseract OCR mode khusus angka (--psm 6 digits)
