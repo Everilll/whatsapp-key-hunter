@@ -2,6 +2,35 @@ import subprocess
 import os
 from PIL import Image, ImageOps
 
+
+def _gabungkan_segmen(kolom_berisi, min_width=5, gap_maks=2):
+    segmen_kasar = []
+    start_x = None
+
+    for x, berisi in enumerate(kolom_berisi):
+        if berisi and start_x is None:
+            start_x = x
+        elif not berisi and start_x is not None:
+            segmen_kasar.append((start_x, x))
+            start_x = None
+
+    if start_x is not None:
+        segmen_kasar.append((start_x, len(kolom_berisi)))
+
+    if not segmen_kasar:
+        return []
+
+    segmen = [segmen_kasar[0]]
+
+    for left, right in segmen_kasar[1:]:
+        prev_left, prev_right = segmen[-1]
+        if left - prev_right <= gap_maks:
+            segmen[-1] = (prev_left, right)
+        else:
+            segmen.append((left, right))
+
+    return [(left, right) for left, right in segmen if right - left > min_width]
+
 def dapatkan_angka_layar(crop_box):
     """Mengambil screenshot, memisahkan angka secara dinamis berbasis kolom, dan membaca per digit"""
     # 1. Ambil screenshot via ADB
@@ -37,28 +66,14 @@ def dapatkan_angka_layar(crop_box):
                 break
         kolom_berisi.append(ada_putih)
     
-    # Kelompokkan kolom putih menjadi segmen-segmen angka terpisah
-    segmen = []
-    di_dalam_angka = False
-    start_x = 0
-    
-    for x, berisi in enumerate(kolom_berisi):
-        if berisi and not di_dalam_angka:
-            start_x = x
-            di_dalam_angka = True
-        elif not berisi and di_dalam_angka:
-            # Cari yang lebarnya masuk akal (abaikan noise titik kecil < 5 pixel)
-            if x - start_x > 5:
-                segmen.append((start_x, x))
-            di_dalam_angka = False
-            
-    if di_dalam_angka:
-        segmen.append((start_x, width))
+    # Kelompokkan kolom putih menjadi segmen-segmen angka terpisah.
+    # Gap kecil di dalam bentuk angka digabung agar digit tidak terpecah.
+    segmen = _gabungkan_segmen(kolom_berisi)
 
     # 3. KIRIM SETIAP SEGMEN ANGKA KE TESSERACT (--psm 10)
     teks_clean = ""
     
-    # Ambil maksimal 4 segmen terbesar (menghindari noise)
+    # Ambil maksimal 4 segmen dari kiri ke kanan (format target 4 digit)
     for idx, (left, right) in enumerate(segmen[:4]):
         # Potong pas di koordinat angka tersebut
         digit_crop = binary_img.crop((left, 0, right, height))
