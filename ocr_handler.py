@@ -1,66 +1,86 @@
 import subprocess
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 
 def dapatkan_angka_layar(crop_box):
-    """Mengambil screenshot, memotong per digit, dan membaca dengan Tesseract"""
-    # 1. Ambil screenshot via ADB lokal
+    """Mengambil screenshot, memisahkan angka secara dinamis berbasis kolom, dan membaca per digit"""
+    # 1. Ambil screenshot via ADB
     subprocess.run("adb shell screencap -p /sdcard/wa_frame.png", shell=True, stdout=subprocess.DEVNULL)
     subprocess.run("adb pull /sdcard/wa_frame.png .", shell=True, stdout=subprocess.DEVNULL)
     
     if not os.path.exists("wa_frame.png"):
-        print("❌ Gagal mengambil screenshot dari ADB. Periksa koneksi!")
+        print("❌ Gagal mengambil screenshot!")
         return ""
         
-    # 2. Potong Gambar secara utuh dulu
     img = Image.open("wa_frame.png")
-    cropped_img = img.crop(tuple(crop_box))
+    cropped_img = img.crop(tuple(crop_box)).convert('L')
     
-    # Pre-processing dasar
-    cropped_img = cropped_img.convert('L')
+    # Pre-processing agar kontras tajam (Bilinear + Binerisasi)
     w, h = cropped_img.size
     cropped_img = cropped_img.resize((w * 2, h * 2), Image.Resampling.BILINEAR)
-    cropped_img = cropped_img.point(lambda p: 255 if p > 127 else 0)
+    binary_img = cropped_img.point(lambda p: 255 if p > 140 else 0)
     
-    # 3. POTONG MENJADI 4 KOTAK DIGIT SECARA VERTIKAL
-    new_w, new_h = cropped_img.size
-    lebar_per_digit = new_w // 4
+    # 2. PROYEKSI VERTIKAL: Cari kolom mana saja yang berisi piksel putih (angka)
+    bw_data = binary_img.load()
+    width, height = binary_img.size
     
-    teks_bersih = ""
+    # Cek setiap kolom dari kiri ke kanan, apakah ada piksel putihnya
+    kolom_berisi = []
+    for x in range(width):
+        ada_putih = False
+        for y in range(height):
+            if bw_data[x, y] == 255:
+                ada_putih = True
+                break
+        kolom_berisi.append(ada_putih)
     
-    for i in range(4):
-        # Hitung koordinat kotak per angka
-        left = i * lebar_per_digit
-        right = (i + 1) * lebar_per_digit
+    # Kelompokkan kolom putih menjadi segmen-segmen angka terpisah
+    segmen = []
+    di_dalam_angka = False
+    start_x = 0
+    
+    for x, berisi in enumerate(kolom_berisi):
+        if berisi and not di_dalam_angka:
+            start_x = x
+            di_dalam_angka = True
+        elif not berisi and di_dalam_angka:
+            # Cari yang lebarnya masuk akal (abaikan noise titik kecil < 5 pixel)
+            if x - start_x > 5:
+                segmen.append((start_x, x))
+            di_dalam_angka = False
+            
+    if di_dalam_angka:
+        segmen.append((start_x, width))
+
+    # 3. KIRIM SETIAP SEGMEN ANGKA KE TESSERACT (--psm 10)
+    teks_clean = ""
+    
+    # Ambil maksimal 4 segmen terbesar (menghindari noise)
+    for idx, (left, right) in enumerate(segmen[:4]):
+        # Potong pas di koordinat angka tersebut
+        digit_crop = binary_img.crop((left, 0, right, height))
         
-        # Potong satu angka saja
-        digit_img = cropped_img.crop((left, 0, right, new_h))
+        # Beri padding border hitam di sekelilingnya agar Tesseract fokus di tengah
+        padded_digit = ImageOps.expand(digit_crop, border=30, fill=0)
+        padded_digit.save(f"digit_{idx}.png")
         
-        # Tambahkan border hitam di sekelilingnya agar Tesseract fokus di tengah
-        padded_img = Image.new("L", (digit_img.width + 40, digit_img.height + 40), 0)
-        padded_img.paste(digit_img, (20, 20))
-        padded_img.save(f"digit_{i}.png")
-        
-        # Panggil Tesseract khusus mode SINGLE CHARACTER (--psm 10)
-        cmd = f"tesseract digit_{i}.png hasil_digit_{i} --psm 10 -c tessedit_char_whitelist=0123456789"
+        # Eksekusi Tesseract Single Character
+        cmd = f"tesseract digit_{idx}.png hasil_digit_{idx} --psm 10 -c tessedit_char_whitelist=0123456789"
         subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Baca hasilnya
-        if os.path.exists(f"hasil_digit_{i}.txt"):
-            with open(f"hasil_digit_{i}.txt", "r") as f:
+        if os.path.exists(f"hasil_digit_{idx}.txt"):
+            with open(f"hasil_digit_{idx}.txt", "r") as f:
                 char = f.read().strip()
-                # Ambil karakter angka pertama yang valid
                 char_clean = "".join(filter(str.isdigit, char))
                 if char_clean:
-                    teks_bersih += char_clean[0]
-            os.remove(f"hasil_digit_{i}.txt")
+                    teks_clean += char_clean[0]
+            os.remove(f"hasil_digit_{idx}.txt")
             
-        if os.path.exists(f"digit_{i}.png"): os.remove(f"digit_{i}.png")
-
-    # Bersihkan sisa file sampah
+        if os.path.exists(f"digit_{idx}.png"): os.remove(f"digit_{idx}.png")
+        
     if os.path.exists("wa_frame.png"): os.remove("wa_frame.png")
     
-    return teks_bersih
+    return teks_clean
 
 def klik_refresh(x, y):
     """Simulasi tap layar pada tombol 'Dapatkan kunci yang berbeda'"""
