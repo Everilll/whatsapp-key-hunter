@@ -41,6 +41,62 @@ def _normalisasi_crop_box(left, top, right, bottom, width, height):
     bottom = _clamp(bottom, top + 1, height)
     return [left, top, right, bottom]
 
+
+def _simpan_preview(img, crop_box, prefix="calib"):
+    cropped = img.crop(tuple(crop_box))
+    cropped.save(f"{prefix}_crop.png")
+
+    preview = img.copy()
+    draw = ImageDraw.Draw(preview)
+    draw.rectangle(tuple(crop_box), outline="red", width=6)
+    preview.save(f"{prefix}_overlay.png")
+
+
+def _interactive_adjust_crop(img, crop_box, width, height):
+    while True:
+        _simpan_preview(img, crop_box, "test")
+
+        print("\n[!] File 'test_crop.png' dan 'test_overlay.png' sudah dibuat.")
+        print("[!] Buka overlay untuk cek posisi crop, lalu sesuaikan jika belum pas.")
+        print(f"[!] Crop saat ini: {crop_box}")
+
+        aksi = input(
+            "Pilih aksi: [y] simpan, [w] atas, [s] bawah, [a] kiri, [d] kanan, [i] kecilkan, [o] besarkan: "
+        ).strip().lower()
+
+        if aksi == "y":
+            return crop_box
+
+        step_x = max(5, width // 60)
+        step_y = max(5, height // 60)
+
+        if aksi == "w":
+            crop_box[1] = _clamp(crop_box[1] - step_y, 0, height - 1)
+            crop_box[3] = _clamp(crop_box[3] - step_y, crop_box[1] + 1, height)
+        elif aksi == "s":
+            crop_box[1] = _clamp(crop_box[1] + step_y, 0, height - 1)
+            crop_box[3] = _clamp(crop_box[3] + step_y, crop_box[1] + 1, height)
+        elif aksi == "a":
+            crop_box[0] = _clamp(crop_box[0] - step_x, 0, width - 1)
+            crop_box[2] = _clamp(crop_box[2] - step_x, crop_box[0] + 1, width)
+        elif aksi == "d":
+            crop_box[0] = _clamp(crop_box[0] + step_x, 0, width - 1)
+            crop_box[2] = _clamp(crop_box[2] + step_x, crop_box[0] + 1, width)
+        elif aksi == "i":
+            crop_box[0] = _clamp(crop_box[0] + step_x, 0, width - 1)
+            crop_box[1] = _clamp(crop_box[1] + step_y, 0, height - 1)
+            crop_box[2] = _clamp(crop_box[2] - step_x, crop_box[0] + 1, width)
+            crop_box[3] = _clamp(crop_box[3] - step_y, crop_box[1] + 1, height)
+        elif aksi == "o":
+            crop_box[0] = _clamp(crop_box[0] - step_x, 0, width - 1)
+            crop_box[1] = _clamp(crop_box[1] - step_y, 0, height - 1)
+            crop_box[2] = _clamp(crop_box[2] + step_x, crop_box[0] + 1, width)
+            crop_box[3] = _clamp(crop_box[3] + step_y, crop_box[1] + 1, height)
+        else:
+            print("❌ Aksi tidak dikenal. Coba lagi.")
+
+        crop_box = _normalisasi_crop_box(crop_box[0], crop_box[1], crop_box[2], crop_box[3], width, height)
+
 def get_screen_resolution():
     """Mengambil resolusi asli layar HP via ADB"""
     print("🔄 Mengambil informasi resolusi layar...")
@@ -78,20 +134,15 @@ def run_calibration():
     # Uji coba crop untuk verifikasi kecocokan layar
     if os.path.exists("calib.png"):
         img = Image.open("calib.png")
-        cropped = img.crop(tuple(crop_box))
-        cropped.save("test_crop_angka.png")
+        crop_box = _interactive_adjust_crop(img, crop_box, width, height)
 
-        preview = img.copy()
-        draw = ImageDraw.Draw(preview)
-        draw.rectangle(tuple(crop_box), outline="red", width=6)
-        preview.save("test_crop_overlay.png")
+        _simpan_preview(img, crop_box, "test")
 
         os.remove("calib.png")
         
-        print("\n[!] File 'test_crop_angka.png' berhasil dibuat.")
-        print("[!] File 'test_crop_overlay.png' juga dibuat untuk lihat posisi crop di screenshot penuh.")
-        print("👉 Silakan cek foto tersebut di galeri/penyimpanan HP kamu.")
-        verif = input("❓ Apakah angka 4 digit WA terlihat penuh di foto tersebut? (y/n): ").strip().lower()
+        print("\n[!] Final preview: 'test_crop.png' dan 'test_overlay.png' berhasil dibuat.")
+        print("👉 Kalau sudah pas, hasil ini akan disimpan sebagai konfigurasi.")
+        verif = input("❓ Simpan hasil calibration ini? (y/n): ").strip().lower()
         
         if verif != 'y':
             print("\n⚠️ Mode Manual Diaktifkan (Gunakan Pointer Location di Opsi Pengembang):")
