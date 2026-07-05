@@ -68,7 +68,7 @@ def dapatkan_angka_layar(crop_box):
         padded_digit.save(f"digit_{idx}.png")
         
         # Eksekusi Tesseract Single Character
-        cmd = f"tesseract digit_{idx}.png hasil_digit_{idx} --psm 10 -c tessedit_char_whitelist=0123456789"
+        cmd = f"tesseract digit_{idx}.png hasil_digit_{idx} --psm 8 -c tessedit_char_whitelist=0123456789"
         subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         if os.path.exists(f"hasil_digit_{idx}.txt"):
