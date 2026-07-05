@@ -136,6 +136,19 @@ def _build_preview_png(image_path, max_width=920):
         return buffer.getvalue(), image.size
 
 
+def _get_android_ip():
+    try:
+        result = subprocess.run("ip route get 1", shell=True, capture_output=True, text=True)
+        output = result.stdout.strip()
+        parts = output.split()
+        if "src" in parts:
+            return parts[parts.index("src") + 1]
+    except Exception:
+        pass
+
+    return None
+
+
 def _build_web_html(width, height, defaults):
         defaults_json = json.dumps(defaults)
         return f"""<!doctype html>
@@ -596,14 +609,32 @@ def run_web_calibration():
     server.preview_png_path = preview_path
 
     web_url = f"http://127.0.0.1:{WEB_PORT}"
-    print(f"🌐 Buka di browser PC: {web_url}")
-    webbrowser.open(web_url)
+    android_ip = _get_android_ip()
+
+    print(f"📱 Buka di browser HP: {web_url}")
+    try:
+        subprocess.run(
+            f'adb shell am start -a android.intent.action.VIEW -d "{web_url}"',
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("📲 Browser HP sudah dicoba dibuka otomatis.")
+    except Exception:
+        try:
+            webbrowser.open(web_url)
+        except Exception:
+            pass
+
+    if android_ip:
+        print(f"🖥️ Kalau mau dibuka dari PC satu Wi-Fi, pakai: http://{android_ip}:{WEB_PORT}")
+    else:
+        print("🖥️ Kalau mau dibuka dari PC, pastikan PC dan HP satu Wi-Fi lalu pakai IP HP yang benar.")
 
     try:
         subprocess.run(f"adb reverse tcp:{WEB_PORT} tcp:{WEB_PORT}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"📲 Kalau mau dibuka di HP, coba URL yang sama setelah adb reverse aktif: {web_url}")
     except Exception:
-        print("⚠️ adb reverse gagal, pakai browser PC saja.")
+        pass
 
     print("Atur crop di browser, lalu klik Simpan.")
     server.save_event.wait()
