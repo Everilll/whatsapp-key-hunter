@@ -20,6 +20,9 @@ def dapatkan_angka_layar(crop_box):
     cropped_img = cropped_img.resize((w * 2, h * 2), Image.Resampling.BILINEAR)
     binary_img = cropped_img.point(lambda p: 255 if p > 140 else 0)
     
+    binary_img.save("clean_angka.png")
+    binary_img.save("/sdcard/hasil_potong_bot.png")
+    
     # 2. PROYEKSI VERTIKAL: Cari kolom mana saja yang berisi piksel putih (angka)
     bw_data = binary_img.load()
     width, height = binary_img.size
