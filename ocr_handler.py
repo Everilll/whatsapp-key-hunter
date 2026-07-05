@@ -20,6 +20,8 @@ def dapatkan_angka_layar(crop_box):
     cropped_img = cropped_img.convert('L')
     cropped_img.save("clean_angka.png")
     
+    cropped_img.save("/sdcard/hasil_potong_bot.png")
+    
     # 3. Jalankan Tesseract OCR mode khusus angka (--psm 6 digits)
     subprocess.run("tesseract clean_angka.png hasil_ocr --psm 6 digits", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
