@@ -570,70 +570,56 @@ def _start_web_server(page_html, screen_size, port=WEB_PORT):
 
 
 def run_web_calibration():
-        print("\n--- MEMULAI WEB CALIBRATION ---")
-        print("Pastikan layar HP kamu sedang membuka menu 'Kunci nama pengguna' di WA.")
-        input("Tekan ENTER jika layar WA sudah siap...")
+    print("\n--- MEMULAI WEB CALIBRATION ---")
+    print("Pastikan layar HP kamu sedang membuka menu 'Kunci nama pengguna' di WA.")
+    input("Tekan ENTER jika layar WA sudah siap...")
 
-        width, height = get_screen_resolution()
-        print(f"📱 Deteksi Resolusi Layar: {width} x {height}")
+    width, height = get_screen_resolution()
+    print(f"📱 Deteksi Resolusi Layar: {width} x {height}")
 
-        print("📸 Mengambil screenshot percobaan...")
-        subprocess.run("adb shell screencap -p /sdcard/calib.png", shell=True)
-        subprocess.run("adb pull /sdcard/calib.png .", shell=True)
+    print("📸 Mengambil screenshot percobaan...")
+    subprocess.run("adb shell screencap -p /sdcard/calib.png", shell=True)
+    subprocess.run("adb pull /sdcard/calib.png .", shell=True)
 
-        if not os.path.exists("calib.png"):
-                raise RuntimeError("Gagal mengambil screenshot untuk calibration")
+    if not os.path.exists("calib.png"):
+        raise RuntimeError("Gagal mengambil screenshot untuk calibration")
 
-        defaults = _profil_default_calibration(width, height)
-        preview_png, preview_size = _build_preview_png("calib.png")
-        preview_path = "calib_preview.png"
+    defaults = _profil_default_calibration(width, height)
+    preview_png, preview_size = _build_preview_png("calib.png")
+    preview_path = "calib_preview.png"
 
-        with open(preview_path, "wb") as file:
-            file.write(preview_png)
+    with open(preview_path, "wb") as file:
+        file.write(preview_png)
 
-        page_html = _build_web_html(preview_size[0], preview_size[1], defaults)
-        server = _start_web_server(page_html, (width, height))
-        server.preview_png_path = preview_path
+    page_html = _build_web_html(preview_size[0], preview_size[1], defaults)
+    server = _start_web_server(page_html, (width, height))
+    server.preview_png_path = preview_path
 
-        try:
-                subprocess.run(f"adb reverse tcp:{WEB_PORT} tcp:{WEB_PORT}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-                pass
+    web_url = f"http://127.0.0.1:{WEB_PORT}"
+    print(f"🌐 Buka di browser PC: {web_url}")
+    webbrowser.open(web_url)
 
-        web_url = f"http://127.0.0.1:{WEB_PORT}"
-        opened = False
+    try:
+        subprocess.run(f"adb reverse tcp:{WEB_PORT} tcp:{WEB_PORT}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"📲 Kalau mau dibuka di HP, coba URL yang sama setelah adb reverse aktif: {web_url}")
+    except Exception:
+        print("⚠️ adb reverse gagal, pakai browser PC saja.")
 
-        try:
-                subprocess.run(
-                        f'adb shell am start -a android.intent.action.VIEW -d "{web_url}"',
-                        shell=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                )
-                opened = True
-                print(f"📲 Web UI dibuka di HP: {web_url}")
-        except Exception:
-                pass
+    print("Atur crop di browser, lalu klik Simpan.")
+    server.save_event.wait()
 
-        if not opened:
-                webbrowser.open(web_url)
-                print(f"🖥️ Web UI dibuka di browser: {web_url}")
+    config_data = server.saved_config
+    server.shutdown()
+    server.server_close()
 
-        print("Atur crop di browser, lalu klik Simpan.")
-        server.save_event.wait()
+    if os.path.exists("calib.png"):
+        os.remove("calib.png")
 
-        config_data = server.saved_config
-        server.shutdown()
-        server.server_close()
+    if os.path.exists(preview_path):
+        os.remove(preview_path)
 
-        if os.path.exists("calib.png"):
-                os.remove("calib.png")
-
-        if os.path.exists(preview_path):
-            os.remove(preview_path)
-
-        print(f"\n✅ Kalibrasi Sukses! Konfigurasi disimpan di '{CONFIG_FILE}'\n")
-        return config_data
+    print(f"\n✅ Kalibrasi Sukses! Konfigurasi disimpan di '{CONFIG_FILE}'\n")
+    return config_data
 
 def get_screen_resolution():
     """Mengambil resolusi asli layar HP via ADB"""
