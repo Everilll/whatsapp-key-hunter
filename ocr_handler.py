@@ -21,10 +21,10 @@ def dapatkan_angka_layar(crop_box):
     
     # Perbesar gambar 2x lipat agar lekukan angka (seperti 3 dan 5) terlihat sangat jelas oleh OCR
     w, h = cropped_img.size
-    cropped_img = cropped_img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+    cropped_img = cropped_img.resize((w * 2, h * 2), Image.Resampling.BILINEAR)
     
-    # Piksel di atas 180 jadi putih bersih (255), di bawah itu jadi hitam pekat (0)
-    cropped_img = cropped_img.point(lambda p: 255 if p > 180 else 0)
+    # Piksel di atas 127 jadi putih bersih (255), di bawah itu jadi hitam pekat (0)
+    cropped_img = cropped_img.point(lambda p: 255 if p > 127 else 0)
     
     # Simpan hasil pembersihan untuk debugging
     cropped_img.save("clean_angka.png")
