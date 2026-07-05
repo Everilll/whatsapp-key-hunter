@@ -136,6 +136,20 @@ def _build_preview_png(image_path, max_width=920):
         return buffer.getvalue(), image.size
 
 
+def _scale_box(box, from_width, from_height, to_width, to_height):
+    if from_width <= 0 or from_height <= 0:
+        return box[:]
+
+    scale_x = to_width / from_width
+    scale_y = to_height / from_height
+    return [
+        int(round(box[0] * scale_x)),
+        int(round(box[1] * scale_y)),
+        int(round(box[2] * scale_x)),
+        int(round(box[3] * scale_y)),
+    ]
+
+
 def _get_android_ip():
     try:
         result = subprocess.run("ip route get 1", shell=True, capture_output=True, text=True)
@@ -547,12 +561,17 @@ class _CalibrationRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(crop_box, list) or len(crop_box) != 4:
                 raise ValueError("crop_box harus berisi 4 angka")
 
-            crop_box = _normalisasi_crop_box(int(crop_box[0]), int(crop_box[1]), int(crop_box[2]), int(crop_box[3]), width, height)
-            click_x = _clamp(click_x, 0, width)
-            click_y = _clamp(click_y, 0, height)
+            preview_width, preview_height = self.server.preview_size
+            original_width, original_height = self.server.screen_size
+
+            crop_box = _normalisasi_crop_box(int(crop_box[0]), int(crop_box[1]), int(crop_box[2]), int(crop_box[3]), preview_width, preview_height)
+            crop_box = _scale_box(crop_box, preview_width, preview_height, original_width, original_height)
+
+            click_x = _clamp(int(round(click_x * original_width / preview_width)), 0, original_width)
+            click_y = _clamp(int(round(click_y * original_height / preview_height)), 0, original_height)
 
             config_data = {
-                "resolution": resolution or f"{width}x{height}",
+                "resolution": resolution or f"{original_width}x{original_height}",
                 "click_x": click_x,
                 "click_y": click_y,
                 "crop_box": crop_box,
@@ -576,6 +595,7 @@ def _start_web_server(page_html, screen_size, port=WEB_PORT):
     server.saved_config = None
     server.save_event = threading.Event()
     server.preview_png_path = None
+    server.preview_size = screen_size
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -600,13 +620,19 @@ def run_web_calibration():
     defaults = _profil_default_calibration(width, height)
     preview_png, preview_size = _build_preview_png("calib.png")
     preview_path = "calib_preview.png"
+    preview_defaults = {
+        "click_x": _scale_box([defaults["click_x"], 0, defaults["click_x"], 0], width, height, preview_size[0], preview_size[1])[0],
+        "click_y": _scale_box([0, defaults["click_y"], 0, defaults["click_y"]], width, height, preview_size[0], preview_size[1])[1],
+        "crop_box": _scale_box(defaults["crop_box"], width, height, preview_size[0], preview_size[1]),
+    }
 
     with open(preview_path, "wb") as file:
         file.write(preview_png)
 
-    page_html = _build_web_html(preview_size[0], preview_size[1], defaults)
+    page_html = _build_web_html(preview_size[0], preview_size[1], preview_defaults)
     server = _start_web_server(page_html, (width, height))
     server.preview_png_path = preview_path
+    server.preview_size = preview_size
 
     web_url = f"http://127.0.0.1:{WEB_PORT}"
     android_ip = _get_android_ip()
