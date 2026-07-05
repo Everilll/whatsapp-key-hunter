@@ -1,5 +1,5 @@
-import base64
 import threading
+import io
 import os
 import subprocess
 import json
@@ -125,13 +125,18 @@ def _interactive_adjust_crop(img, crop_box, width, height):
         crop_box = _normalisasi_crop_box(crop_box[0], crop_box[1], crop_box[2], crop_box[3], width, height)
 
 
-def _image_to_data_uri(image_path):
-        with open(image_path, "rb") as file:
-                encoded = base64.b64encode(file.read()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
+def _build_preview_png(image_path, max_width=920):
+    with Image.open(image_path) as image:
+        if image.width > max_width:
+            new_height = int(image.height * max_width / image.width)
+            image = image.resize((max_width, new_height), Image.Resampling.LANCZOS)
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue(), image.size
 
 
-def _build_web_html(image_uri, width, height, defaults):
+def _build_web_html(width, height, defaults):
         defaults_json = json.dumps(defaults)
         return f"""<!doctype html>
 <html lang="id">
@@ -293,7 +298,7 @@ def _build_web_html(image_uri, width, height, defaults):
             <div class="layout">
                 <div>
                     <div class="preview">
-                        <img id="shot" src="__IMAGE_URI__" alt="Screenshot calibration" />
+                        <img id="shot" src="/shot.png" alt="Screenshot calibration" />
                         <div id="overlay"></div>
                     </div>
                     <div class="meta">
@@ -475,81 +480,93 @@ def _build_web_html(image_uri, width, height, defaults):
         updateOverlay();
     </script>
 </body>
-</html>""".replace("__IMAGE_URI__", image_uri).replace("__DEFAULTS__", defaults_json).replace("__WIDTH__", str(width)).replace("__HEIGHT__", str(height)).replace("__STATUS__", "Buka page ini di browser HP/PC, atur crop, lalu klik Simpan.")
+</html>""".replace("__DEFAULTS__", defaults_json).replace("__WIDTH__", str(width)).replace("__HEIGHT__", str(height)).replace("__STATUS__", "Buka page ini di browser HP/PC, atur crop, lalu klik Simpan.")
 
 
 class _CalibrationRequestHandler(BaseHTTPRequestHandler):
-        def log_message(self, format, *args):
-                return
+    def log_message(self, format, *args):
+        return
 
-        def _send_text(self, status_code, content, content_type="text/html; charset=utf-8"):
-                encoded = content.encode("utf-8")
-                self.send_response(status_code)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(encoded)))
-                self.end_headers()
-                self.wfile.write(encoded)
+    def _send_text(self, status_code, content, content_type="text/html; charset=utf-8"):
+        encoded = content.encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
 
-        def do_GET(self):
-                if self.path in ("/", "/index.html"):
-                        self._send_text(200, self.server.page_html)
-                        return
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._send_text(200, self.server.page_html)
+            return
 
-                if self.path == "/health":
-                        self._send_text(200, "ok", "text/plain; charset=utf-8")
-                        return
+        if self.path == "/shot.png":
+            with open(self.server.preview_png_path, "rb") as file:
+                data = file.read()
 
-                self._send_text(404, "Not Found", "text/plain; charset=utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
 
-        def do_POST(self):
-                if self.path != "/save":
-                        self._send_text(404, json.dumps({"ok": False, "message": "Not Found"}), "application/json; charset=utf-8")
-                        return
+        if self.path == "/health":
+            self._send_text(200, "ok", "text/plain; charset=utf-8")
+            return
 
-                try:
-                        length = int(self.headers.get("Content-Length", "0"))
-                        payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                        resolution = payload.get("resolution", "")
-                        click_x = int(payload.get("click_x", 0))
-                        click_y = int(payload.get("click_y", 0))
-                        crop_box = payload.get("crop_box", [0, 0, 1, 1])
-                        width, height = self.server.screen_size
+        self._send_text(404, "Not Found", "text/plain; charset=utf-8")
 
-                        if not isinstance(crop_box, list) or len(crop_box) != 4:
-                                raise ValueError("crop_box harus berisi 4 angka")
+    def do_POST(self):
+        if self.path != "/save":
+            self._send_text(404, json.dumps({"ok": False, "message": "Not Found"}), "application/json; charset=utf-8")
+            return
 
-                        crop_box = _normalisasi_crop_box(int(crop_box[0]), int(crop_box[1]), int(crop_box[2]), int(crop_box[3]), width, height)
-                        click_x = _clamp(click_x, 0, width)
-                        click_y = _clamp(click_y, 0, height)
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            resolution = payload.get("resolution", "")
+            click_x = int(payload.get("click_x", 0))
+            click_y = int(payload.get("click_y", 0))
+            crop_box = payload.get("crop_box", [0, 0, 1, 1])
+            width, height = self.server.screen_size
 
-                        config_data = {
-                                "resolution": resolution or f"{width}x{height}",
-                                "click_x": click_x,
-                                "click_y": click_y,
-                                "crop_box": crop_box,
-                        }
+            if not isinstance(crop_box, list) or len(crop_box) != 4:
+                raise ValueError("crop_box harus berisi 4 angka")
 
-                        with open(CONFIG_FILE, "w") as file:
-                                json.dump(config_data, file, indent=4)
+            crop_box = _normalisasi_crop_box(int(crop_box[0]), int(crop_box[1]), int(crop_box[2]), int(crop_box[3]), width, height)
+            click_x = _clamp(click_x, 0, width)
+            click_y = _clamp(click_y, 0, height)
 
-                        self.server.saved_config = config_data
-                        self.server.save_event.set()
+            config_data = {
+                "resolution": resolution or f"{width}x{height}",
+                "click_x": click_x,
+                "click_y": click_y,
+                "crop_box": crop_box,
+            }
 
-                        self._send_text(200, json.dumps({"ok": True, "message": f"Kalibrasi tersimpan ke {CONFIG_FILE}"}), "application/json; charset=utf-8")
-                except Exception as error:
-                        self._send_text(400, json.dumps({"ok": False, "message": f"Gagal menyimpan: {error}"}), "application/json; charset=utf-8")
+            with open(CONFIG_FILE, "w") as file:
+                json.dump(config_data, file, indent=4)
+
+            self.server.saved_config = config_data
+            self.server.save_event.set()
+
+            self._send_text(200, json.dumps({"ok": True, "message": f"Kalibrasi tersimpan ke {CONFIG_FILE}"}), "application/json; charset=utf-8")
+        except Exception as error:
+            self._send_text(400, json.dumps({"ok": False, "message": f"Gagal menyimpan: {error}"}), "application/json; charset=utf-8")
 
 
 def _start_web_server(page_html, screen_size, port=WEB_PORT):
-        server = ThreadingHTTPServer(("0.0.0.0", port), _CalibrationRequestHandler)
-        server.page_html = page_html
-        server.screen_size = screen_size
-        server.saved_config = None
-        server.save_event = threading.Event()
+    server = ThreadingHTTPServer(("0.0.0.0", port), _CalibrationRequestHandler)
+    server.page_html = page_html
+    server.screen_size = screen_size
+    server.saved_config = None
+    server.save_event = threading.Event()
+    server.preview_png_path = None
 
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        return server
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
 
 
 def run_web_calibration():
@@ -568,9 +585,15 @@ def run_web_calibration():
                 raise RuntimeError("Gagal mengambil screenshot untuk calibration")
 
         defaults = _profil_default_calibration(width, height)
-        image_uri = _image_to_data_uri("calib.png")
-        page_html = _build_web_html(image_uri, width, height, defaults)
+        preview_png, preview_size = _build_preview_png("calib.png")
+        preview_path = "calib_preview.png"
+
+        with open(preview_path, "wb") as file:
+            file.write(preview_png)
+
+        page_html = _build_web_html(preview_size[0], preview_size[1], defaults)
         server = _start_web_server(page_html, (width, height))
+        server.preview_png_path = preview_path
 
         try:
                 subprocess.run(f"adb reverse tcp:{WEB_PORT} tcp:{WEB_PORT}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -605,6 +628,9 @@ def run_web_calibration():
 
         if os.path.exists("calib.png"):
                 os.remove("calib.png")
+
+        if os.path.exists(preview_path):
+            os.remove(preview_path)
 
         print(f"\n✅ Kalibrasi Sukses! Konfigurasi disimpan di '{CONFIG_FILE}'\n")
         return config_data
