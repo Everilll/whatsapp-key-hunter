@@ -3,6 +3,28 @@ import sys
 import calibration
 import ocr_handler
 
+
+def _baca_jeda(default=1.3):
+    while True:
+        nilai = input("Masukkan jeda waktu antar reset dalam detik (Default 1.3): ").strip()
+
+        if not nilai:
+            return default
+
+        nilai = nilai.replace(",", ".")
+
+        try:
+            jeda = float(nilai)
+        except ValueError:
+            print("❌ Jeda harus angka, contoh: 1.3")
+            continue
+
+        if jeda <= 0:
+            print("❌ Jeda harus lebih besar dari 0")
+            continue
+
+        return jeda
+
 def main():
     print("===============================================")
     print("    🟩 WA USERNAME KEY HUNTER by EVERILL 🟩     ")
@@ -21,7 +43,7 @@ def main():
     # 3. Input jeda waktu dinamis berdasarkan spesifikasi HP pengguna
     print("\nSet Jeda Waktu (Semakin tinggi spesifikasi HP, bisa semakin cepat)")
     print("Saran: 0.8 (HP Flagship), 1.3 (HP Menengah), 2.0 (HP Entry-level)")
-    jeda = float(input("Masukkan jeda waktu antar reset dalam detik (Default 1.3): ") or 1.3)
+    jeda = _baca_jeda()
         
     print(f"\n🚀 Memulai perburuan angka {target} dengan jeda {jeda}s...")
     print("Tekan Ctrl + C di Termux kapan saja untuk menghentikan program.\n")
